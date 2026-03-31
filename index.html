@@ -1,0 +1,647 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Inventory Threshold Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+<script>
+// Load ExcelJS with fallback
+(function(){
+  var s = document.createElement('script');
+  s.src = 'https://cdn.jsdelivr.net/npm/exceljs@4.3.0/dist/exceljs.min.js';
+  s.onerror = function(){
+    var s2 = document.createElement('script');
+    s2.src = 'https://unpkg.com/exceljs@4.3.0/dist/exceljs.min.js';
+    document.head.appendChild(s2);
+  };
+  document.head.appendChild(s);
+})();
+</script>
+<style>
+  :root {
+    --bg:#f0f2f5; --surface:#ffffff; --surface2:#e8eaed; --border:#d1d5db;
+    --text:#1f2937; --muted:#6b7280; --accent:#2563eb; --accent2:#7c3aed;
+    --blue-bg:#dbeafe; --blue-txt:#1d4ed8;
+    --red-bg:#fee2e2;  --red-txt:#dc2626;
+    --green-bg:#dcfce7;--green-txt:#16a34a;
+    --pink-bg:#fce7f3; --pink-txt:#be185d;
+    --dred-bg:#fecaca; --dred-txt:#991b1b;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;font-size:13px;min-height:100vh;}
+
+  #overlay{position:fixed;inset:0;background:rgba(240,242,245,.93);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:999;gap:14px;}
+  #overlay.hide{display:none;}
+  .ring{width:44px;height:44px;border-radius:50%;border:3px solid var(--border);border-top-color:var(--accent);animation:spin .8s linear infinite;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+  .load-lbl{font-family:'Space Mono',monospace;font-size:11px;color:var(--muted);}
+  .load-step{font-size:11px;color:var(--accent);}
+
+  header{display:flex;align-items:center;justify-content:space-between;padding:14px 24px;background:var(--surface);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:100;box-shadow:0 1px 3px rgba(0,0,0,.06);}
+  .logo{font-family:'Space Mono',monospace;font-size:14px;font-weight:700;color:var(--accent);letter-spacing:.05em;}
+  .logo span{color:var(--muted);}
+  .hdr-r{display:flex;align-items:center;gap:10px;}
+  .live-dot{width:8px;height:8px;border-radius:50%;background:#16a34a;box-shadow:0 0 5px #16a34a;animation:pulse 2s infinite;}
+  @keyframes pulse{0%,100%{opacity:1;}50%{opacity:.4;}}
+  .btn{padding:6px 14px;border-radius:6px;border:1px solid var(--accent);background:transparent;color:var(--accent);font-family:'DM Sans',sans-serif;font-size:12px;font-weight:600;cursor:pointer;transition:all .15s;white-space:nowrap;}
+  .btn:hover{background:var(--accent);color:#fff;}
+  .btn:disabled{opacity:.4;cursor:not-allowed;}
+  .btn.green{border-color:#16a34a;color:#16a34a;}
+  .btn.green:hover{background:#16a34a;color:#fff;}
+  .spin-i{display:inline-block;animation:spin 1s linear infinite;}
+
+  .legend{display:flex;gap:12px;flex-wrap:wrap;align-items:center;padding:8px 24px;background:var(--surface);border-bottom:1px solid var(--border);font-size:11px;color:var(--muted);}
+  .li{display:flex;align-items:center;gap:5px;}
+  .dot{width:10px;height:10px;border-radius:2px;}
+  .d-blue{background:var(--blue-bg);border:1px solid var(--blue-txt);}
+  .d-red{background:var(--red-bg);border:1px solid var(--red-txt);}
+  .d-dred{background:var(--dred-bg);border:1px solid var(--dred-txt);}
+  .d-green{background:var(--green-bg);border:1px solid var(--green-txt);}
+  .d-pink{background:var(--pink-bg);border:1px solid var(--pink-txt);}
+
+  .stats{display:flex;gap:10px;padding:14px 24px;flex-wrap:wrap;}
+  .sc{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 16px;min-width:125px;box-shadow:0 1px 2px rgba(0,0,0,.04);}
+  .sc .lbl{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;}
+  .sc .val{font-family:'Space Mono',monospace;font-size:20px;font-weight:700;color:var(--accent);}
+  .sc .val.r{color:var(--red-txt);}
+  .sc .val.g{color:var(--green-txt);}
+
+  .ctrl{display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:10px 24px;background:var(--surface);border-bottom:1px solid var(--border);}
+  .tabs{display:flex;gap:3px;}
+  .tab{padding:6px 14px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--muted);font-family:'DM Sans',sans-serif;font-size:12px;cursor:pointer;transition:all .15s;}
+  .tab.on{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600;}
+  .tab:not(.on):hover{border-color:var(--accent);color:var(--accent);}
+  .ctrl input[type=text]{padding:6px 11px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;font-size:12px;width:200px;outline:none;}
+  .ctrl input:focus{border-color:var(--accent);}
+  .ctrl select{padding:6px 9px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;font-size:12px;outline:none;cursor:pointer;}
+  .rc{margin-left:auto;font-size:11px;color:var(--muted);font-family:'Space Mono',monospace;}
+  .rc b{color:var(--accent);}
+
+  .err{margin:12px 24px;padding:11px 14px;background:var(--red-bg);border:1px solid var(--red-txt);border-radius:7px;color:var(--red-txt);font-size:12px;line-height:1.6;display:none;}
+  .err.on{display:block;}
+
+  /* Virtual scroll container */
+  .tbl-outer{padding:16px 24px;}
+  .tbl-scroll{
+    overflow:auto;
+    border-radius:8px;
+    border:1px solid var(--border);
+    box-shadow:0 1px 3px rgba(0,0,0,.05);
+    max-height:calc(100vh - 300px);
+    position:relative;
+  }
+
+  table{width:max-content;min-width:100%;border-collapse:collapse;font-size:12px;background:var(--surface);}
+
+  /* Sticky headers inside scroll container */
+  .gh th{
+    background:#e0e7ff;color:var(--accent);
+    font-family:'Space Mono',monospace;font-size:10px;letter-spacing:.07em;text-transform:uppercase;
+    padding:8px 10px;border:1px solid var(--border);text-align:center;white-space:nowrap;
+    position:sticky;top:0;z-index:12;
+  }
+  .gh th.skh{background:var(--surface2);color:var(--muted);}
+  .sh th{
+    background:var(--surface2);color:var(--muted);
+    font-size:10px;letter-spacing:.04em;text-transform:uppercase;
+    padding:6px 10px;border:1px solid var(--border);text-align:center;white-space:nowrap;
+    position:sticky;top:34px;z-index:12;
+  }
+  .sh th.skh{text-align:left;position:sticky;left:0;z-index:13;background:var(--surface2);}
+  .sh th.tyh{position:sticky;left:220px;z-index:13;background:var(--surface2);text-align:left;}
+
+  tbody tr{border-bottom:1px solid var(--border);}
+  tbody tr:hover{background:#f5f7ff;}
+  td{padding:5px 10px;border-right:1px solid var(--border);text-align:center;white-space:nowrap;}
+  td.tyc{font-size:10px;color:var(--muted);text-align:left;padding-left:9px;min-width:110px;border-right:1px solid var(--border);position:sticky;left:0;background:var(--surface);z-index:5;}
+  td.skc{text-align:left;font-family:'Space Mono',monospace;font-size:10px;position:sticky;left:110px;background:var(--surface);z-index:5;padding-left:12px;min-width:220px;border-right:2px solid var(--border);}
+  tbody tr:hover td.skc,tbody tr:hover td.tyc{background:#f5f7ff;}
+
+  .cb{background:var(--blue-bg);color:var(--blue-txt);font-weight:500;}
+  .cr{background:var(--red-bg);color:var(--red-txt);font-weight:500;}
+  .cdr{background:var(--dred-bg);color:var(--dred-txt);font-weight:700;}
+  .cdg{background:var(--green-bg);color:var(--green-txt);font-weight:700;}
+  .cz{background:var(--pink-bg);color:var(--pink-txt);}
+  td.sep,th.sep{border-left:2px solid var(--accent2)!important;}
+
+  /* Virtual spacers */
+  tr.vspacer td{padding:0;border:none;background:var(--surface);}
+
+  .empty{text-align:center;padding:60px 20px;color:var(--muted);background:var(--surface);}
+  .empty .big{font-size:38px;margin-bottom:8px;}
+  #updatedAt{font-size:10px;color:var(--muted);font-family:'Space Mono',monospace;}
+</style>
+</head>
+<body>
+
+<div id="overlay">
+  <div class="ring"></div>
+  <div class="load-lbl">Loading inventory data…</div>
+  <div class="load-step" id="lstep">Connecting to Apps Script…</div>
+</div>
+
+<header>
+  <div class="logo">INVENTORY<span>/</span>THRESHOLD</div>
+  <div class="hdr-r">
+    <div class="live-dot"></div>
+    <span id="updatedAt">—</span>
+    <button class="btn green" id="excelBtn" onclick="exportExcel()">⬇ Excel</button>
+    <button class="btn" id="rfBtn" onclick="loadAll()"><span id="rfIco">↻</span> Refresh</button>
+  </div>
+</header>
+
+<div class="legend">
+  <div class="li"><div class="dot d-blue"></div>Threshold &gt; 1</div>
+  <div class="li"><div class="dot d-red"></div>Threshold = 0</div>
+  <div class="li"><div class="dot d-pink"></div>SKU has zero threshold</div>
+  <div class="li"><div class="dot d-dred"></div>BP Discrepancy</div>
+  <div class="li"><div class="dot d-green"></div>Optimal Discrepancy</div>
+</div>
+
+<div id="errBanner" class="err"></div>
+
+<div class="stats">
+  <div class="sc"><div class="lbl">Total SKUs</div><div class="val" id="sSkus">—</div></div>
+  <div class="sc"><div class="lbl">Warehouses</div><div class="val" id="sWH">—</div></div>
+  <div class="sc"><div class="lbl">BP Discrepancies</div><div class="val r" id="sBP">—</div></div>
+  <div class="sc"><div class="lbl">Optimal Discrepancies</div><div class="val g" id="sOpt">—</div></div>
+  <div class="sc"><div class="lbl">Zero Threshold SKUs</div><div class="val r" id="sZero">—</div></div>
+</div>
+
+<div class="ctrl">
+  <div class="tabs">
+    <button class="tab on" onclick="switchTab('all')">All SKUs</button>
+    <button class="tab"    onclick="switchTab('disc')">BP Discrepancy Only</button>
+    <button class="tab"    onclick="switchTab('history')">📅 History</button>
+  </div>
+  <input type="text" id="srch" placeholder="🔍 Search SKU…" oninput="onFilter()"/>
+  <select id="whSel" onchange="onFilter()"><option value="">All Warehouses</option></select>
+  <div class="rc" id="rc"><b>0</b> rows</div>
+</div>
+
+<div id="historyPanel" style="display:none;padding:16px 24px;">
+  <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap;">
+    <label style="font-size:12px;color:var(--muted);font-weight:600;">Select Date:</label>
+    <select id="historyDateSel" onchange="renderHistory()" style="padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-family:'DM Sans',sans-serif;font-size:12px;outline:none;cursor:pointer;min-width:160px;"></select>
+    <span id="historyCount" style="font-size:11px;color:var(--muted);font-family:'Space Mono',monospace;"></span>
+    <button class="btn green" onclick="exportHistoryExcel()" style="margin-left:auto;">⬇ Excel</button>
+  </div>
+  <div class="tbl-scroll" id="historyScroll" style="max-height:calc(100vh - 340px);">
+    <div id="htw"></div>
+  </div>
+</div>
+
+<div class="tbl-outer">
+  <div class="tbl-scroll" id="tblScroll">
+    <div id="tw"></div>
+  </div>
+</div>
+
+<script>
+const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyLh-hR-Pop3D3FpwRLd_AX6LAQJt5bw5BJVKm2Xz2R0YEuvCQaSexdOFQHp61EC0FEJg/exec';
+
+const ROW_H       = 29;   // px per data row
+const BUFFER      = 15;   // extra rows above/below viewport
+const BATCH_SIZE  = 60;   // rows rendered per animation frame chunk
+
+let mode         = 'all';
+let DB           = { warehouses:[], rows:[], stats:{} };
+let visibleRows  = [];    // current filtered rows
+let currentWHs   = [];
+let renderTimer  = null;
+let tableEl      = null;  // <table> reference
+let tbodyEl      = null;  // <tbody> reference
+let topSpacer    = null;
+let botSpacer    = null;
+let lastStart    = -1;
+let lastEnd      = -1;
+let totalCols    = 0;
+
+// ── LOAD ────────────────────────────────────────────────────
+function loadAll() {
+  showOverlay(true); disableRefresh(true); hideErr();
+  step('Fetching data from Apps Script…');
+  const old = document.getElementById('jsonp_script');
+  if (old) old.remove();
+  if (window.__jsonpTimeout) clearTimeout(window.__jsonpTimeout);
+
+  window.__inventoryCallback = function(data) {
+    const s = document.getElementById('jsonp_script');
+    if (s) s.remove();
+    clearTimeout(window.__jsonpTimeout);
+    if (!data.ok) { showErr('Apps Script error: '+(data.error||'Unknown')); showOverlay(false); disableRefresh(false); return; }
+    DB = data;
+    populateWHFilter();
+    updateStats(data.stats);
+    const d = new Date(data.updated);
+    document.getElementById('updatedAt').textContent = d.toLocaleDateString()+' '+d.toLocaleTimeString();
+    applyFilters();
+    showOverlay(false); disableRefresh(false);
+  };
+
+  window.__jsonpTimeout = setTimeout(()=>{
+    showErr('Request timed out. Make sure the Apps Script is deployed with access "Anyone".');
+    showOverlay(false); disableRefresh(false);
+  }, 25000);
+
+  const s = document.createElement('script');
+  s.id = 'jsonp_script';
+  s.src = APPS_SCRIPT_URL + '?callback=__inventoryCallback';
+  s.onerror = ()=>{ clearTimeout(window.__jsonpTimeout); showErr('Failed to reach Apps Script.'); showOverlay(false); disableRefresh(false); };
+  document.head.appendChild(s);
+}
+
+function updateStats(s) {
+  document.getElementById('sSkus').textContent  = s.totalSKUs;
+  document.getElementById('sWH').textContent    = s.totalWH;
+  document.getElementById('sBP').textContent    = s.totalBPDisc;
+  document.getElementById('sOpt').textContent   = s.totalOptDisc;
+  document.getElementById('sZero').textContent  = s.totalZero;
+}
+
+function populateWHFilter() {
+  const sel = document.getElementById('whSel');
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">All Warehouses</option>';
+  DB.warehouses.forEach(wh => {
+    const o = document.createElement('option');
+    o.value = wh; o.textContent = wh;
+    if (wh === cur) o.selected = true;
+    sel.appendChild(o);
+  });
+}
+
+// ── FILTER ──────────────────────────────────────────────────
+function switchTab(t) {
+  mode = t;
+  document.querySelectorAll('.tabs .tab').forEach((el,i)=>el.classList.toggle('on', i===(t==='all'?0:t==='disc'?1:2)));
+  const isHistory = t === 'history';
+  document.getElementById('historyPanel').style.display = isHistory ? 'block' : 'none';
+  document.getElementById('tblScroll').closest('.tbl-outer').style.display = isHistory ? 'none' : 'block';
+  // hide search/filter controls for history
+  document.getElementById('srch').style.display  = isHistory ? 'none' : '';
+  document.getElementById('whSel').style.display = isHistory ? 'none' : '';
+  document.getElementById('rc').style.display    = isHistory ? 'none' : '';
+  if (isHistory) {
+    loadHistory();
+  } else {
+    applyFilters();
+  }
+}
+
+function onFilter() {
+  clearTimeout(renderTimer);
+  renderTimer = setTimeout(applyFilters, 120); // debounce search input
+}
+
+function applyFilters() {
+  const search = document.getElementById('srch').value.toLowerCase();
+  const whF    = document.getElementById('whSel').value;
+  currentWHs   = DB.warehouses ? (whF ? DB.warehouses.filter(w=>w===whF) : DB.warehouses) : [];
+  totalCols    = 2 + currentWHs.length * 5;
+
+  let rows = DB.rows || [];
+  if (search) rows = rows.filter(r => r.sku.toLowerCase().includes(search));
+  if (mode === 'disc') {
+    // Only SKUs from the SKUs tab (tracked=true) that have BP discrepancy
+    rows = rows.filter(row => row.tracked && currentWHs.some(wh => {
+      const c = row.cells[wh];
+      return c && c.discBP !== null && c.discBP !== 0;
+    }));
+  }
+
+  visibleRows = rows;
+  document.getElementById('rc').innerHTML = `<b>${rows.length}</b> rows`;
+
+  buildTable();
+}
+
+// ── BUILD TABLE SKELETON ─────────────────────────────────────
+function buildTable() {
+  const tw = document.getElementById('tw');
+  const scroll = document.getElementById('tblScroll');
+
+  if (!visibleRows.length) {
+    tw.innerHTML = `<div class="empty"><div class="big">${DB.rows&&DB.rows.length?'🔍':'📦'}</div><p>${DB.rows&&DB.rows.length?'No rows match your filters.':'Waiting for data…'}</p></div>`;
+    return;
+  }
+
+  // Build header HTML once
+  let hdr = '<table id="mainTable"><thead>';
+  hdr += '<tr class="gh"><th class="skh" rowspan="2" style="min-width:110px;position:sticky;left:0;z-index:14">Type</th>';
+  hdr += '<th class="skh" rowspan="2" style="min-width:220px;position:sticky;left:110px;z-index:14">SKU</th>';
+  currentWHs.forEach((wh,i)=>{ hdr += `<th colspan="5"${i>0?' class="sep"':''}>${wh}</th>`; });
+  hdr += '</tr><tr class="sh"><th class="skh" style="display:none"></th>';
+  currentWHs.forEach((wh,i)=>{
+    const s=i>0?' sep':'';
+    hdr+=`<th class="${s}">Threshold</th><th>BP</th><th>Optimal</th><th>Disc BP</th><th>Disc Opt</th>`;
+  });
+  hdr += '</tr></thead><tbody id="vbody">';
+  // Top spacer
+  hdr += `<tr class="vspacer" id="topSpacer"><td colspan="${totalCols}" style="height:0px"></td></tr>`;
+  hdr += '</tbody></table>';
+
+  tw.innerHTML = hdr;
+  tableEl  = document.getElementById('mainTable');
+  tbodyEl  = document.getElementById('vbody');
+  topSpacer= document.getElementById('topSpacer');
+  lastStart = -1; lastEnd = -1;
+
+  // Bottom spacer — append after topSpacer
+  const botTr = document.createElement('tr');
+  botTr.className = 'vspacer'; botTr.id = 'botSpacer';
+  const botTd = document.createElement('td');
+  botTd.colSpan = totalCols;
+  botTd.style.height = (visibleRows.length * ROW_H) + 'px';
+  botTr.appendChild(botTd);
+  tbodyEl.appendChild(botTr);
+  botSpacer = botTr;
+
+  // Attach scroll listener
+  scroll.onscroll = onScroll;
+  // Initial render
+  renderViewport(0);
+}
+
+// ── VIRTUAL SCROLL ───────────────────────────────────────────
+function onScroll() {
+  renderViewport(document.getElementById('tblScroll').scrollTop);
+}
+
+function renderViewport(scrollTop) {
+  if (!visibleRows.length || !tbodyEl) return;
+  const viewH    = document.getElementById('tblScroll').clientHeight;
+  const startIdx = Math.max(0, Math.floor(scrollTop / ROW_H) - BUFFER);
+  const endIdx   = Math.min(visibleRows.length - 1, Math.ceil((scrollTop + viewH) / ROW_H) + BUFFER);
+
+  if (startIdx === lastStart && endIdx === lastEnd) return;
+  lastStart = startIdx; lastEnd = endIdx;
+
+  // Update spacers
+  topSpacer.firstChild.style.height = (startIdx * ROW_H) + 'px';
+  botSpacer.firstChild.style.height = ((visibleRows.length - 1 - endIdx) * ROW_H) + 'px';
+
+  // Build visible rows HTML
+  const fragment = document.createDocumentFragment();
+  // Insert top spacer reference
+  fragment.appendChild(topSpacer.cloneNode(true));
+
+  let html = '';
+  for (let i = startIdx; i <= endIdx; i++) {
+    html += buildRowHTML(visibleRows[i]);
+  }
+
+  // Replace rows between spacers efficiently
+  // Remove existing data rows (keep spacers)
+  const existing = tbodyEl.querySelectorAll('tr:not(.vspacer)');
+  existing.forEach(r => r.remove());
+
+  // Insert new rows before botSpacer
+  const tmp = document.createElement('tbody');
+  tmp.innerHTML = html;
+  while (tmp.firstChild) {
+    tbodyEl.insertBefore(tmp.firstChild, botSpacer);
+  }
+}
+
+// ── BUILD ROW HTML ───────────────────────────────────────────
+function buildRowHTML(row) {
+  const flagged = currentWHs.some(wh => row.cells[wh] && row.cells[wh].th === 0);
+  let h = `<tr style="height:${ROW_H}px">`;
+  h += `<td class="tyc${flagged?' cz':''}">${row.type||''}</td>`;
+  h += `<td class="skc${flagged?' cz':''}">${row.sku}</td>`;
+
+  currentWHs.forEach((wh, i) => {
+    const c   = row.cells[wh] || {th:null,bp:null,opt:null,discBP:null,discOpt:null};
+    const sep = i>0?' sep':'';
+
+    let tc=sep;
+    if      (c.th===0)              tc+=' cr';
+    else if (c.th!==null&&c.th>1)  tc+=' cb';
+    h+=`<td class="${tc}">${c.th!==null?c.th:'—'}</td>`;
+
+    let bc='';
+    if      (c.bp===0)              bc=' cr';
+    else if (c.bp!==null&&c.bp>1)  bc=' cb';
+    h+=`<td class="${bc}">${c.bp!==null?c.bp:'—'}</td>`;
+
+    h+=`<td>${c.opt!==null?c.opt:'—'}</td>`;
+
+    const bpD=c.discBP!==null&&c.discBP!==0;
+    h+=`<td class="${bpD?' cdr':''}">${c.discBP!==null?(c.discBP>0?'+':'')+c.discBP:'—'}</td>`;
+
+    const opD=c.discOpt!==null&&c.discOpt!==0;
+    h+=`<td class="${opD?' cdg':''}">${c.discOpt!==null?(c.discOpt>0?'+':'')+c.discOpt:'—'}</td>`;
+  });
+
+  h += '</tr>';
+  return h;
+}
+
+// ── EXCEL EXPORT (ExcelJS — full formatting support) ─────────
+const C = {
+  blue_bg:'DBEAFE',  blue_txt:'FF1D4ED8',
+  red_bg:'FEE2E2',   red_txt:'FFDC2626',
+  dred_bg:'FECACA',  dred_txt:'FF991B1B',
+  green_bg:'DCFCE7', green_txt:'FF16A34A',
+  pink_bg:'FCE7F3',  pink_txt:'FFBE185D',
+  grey_hdr:'E0E7FF', grey_sub:'E8EAED',
+  wh_sep:'FF7C3AED', white:'FFFFFFFF',
+  border_col:'FFD1D5DB'
+};
+
+function argb(hex6){ return 'FF'+hex6.replace('#',''); }
+
+function borderThin(color){ return { style:'thin', color:{argb: color||C.border_col} }; }
+
+function applyCell(cell, value, bgArgb, fgArgb, bold, alignH) {
+  cell.value = (value === null || value === undefined) ? '' : value;
+  cell.font  = { name:'Arial', size:9, bold:!!bold, color:{ argb: fgArgb||'FF1F2937' } };
+  cell.fill  = { type:'pattern', pattern:'solid', fgColor:{ argb: bgArgb||C.white } };
+  cell.alignment = { horizontal: alignH||'center', vertical:'middle' };
+  cell.border = {
+    top:    borderThin(), bottom: borderThin(),
+    left:   borderThin(), right:  borderThin()
+  };
+}
+
+async function buildWorkbook(whs, allRows, discRows, filename) {
+  const wb = new ExcelJS.Workbook();
+  wb.creator = 'Inventory Dashboard';
+
+  async function addSheet(sheetName, rows) {
+    const ws = wb.addWorksheet(sheetName, { views:[{state:'frozen', xSplit:2, ySplit:2}] });
+
+    // Column widths
+    ws.getColumn(1).width = 14;
+    ws.getColumn(2).width = 30;
+    whs.forEach((_, i) => {
+      const base = 3 + i * 5;
+      ws.getColumn(base).width   = 10; // Threshold
+      ws.getColumn(base+1).width = 8;  // BP
+      ws.getColumn(base+2).width = 10; // Optimal
+      ws.getColumn(base+3).width = 9;  // Disc BP
+      ws.getColumn(base+4).width = 9;  // Disc Opt
+    });
+
+    // Row 1 — group headers
+    const row1 = ws.getRow(1);
+    row1.height = 18;
+    applyCell(row1.getCell(1), 'Type', C.grey_sub, 'FF6B7280', true, 'left');
+    applyCell(row1.getCell(2), 'SKU',  C.grey_sub, 'FF6B7280', true, 'left');
+    whs.forEach((wh, i) => {
+      const base = 3 + i * 5;
+      applyCell(row1.getCell(base), wh, C.grey_hdr, 'FF2563EB', true, 'center');
+      // Blank merged cells
+      for (let k = 1; k < 5; k++) applyCell(row1.getCell(base+k), '', C.grey_hdr, 'FF2563EB', true);
+      ws.mergeCells(1, base, 1, base+4);
+      // Left border separator for WH groups after first
+      if (i > 0) {
+        row1.getCell(base).border = { ...row1.getCell(base).border, left:{ style:'medium', color:{argb:C.wh_sep} } };
+      }
+    });
+    // Merge SKU & Type down 2 rows
+    ws.mergeCells(1,1,2,1);
+    ws.mergeCells(1,2,2,2);
+
+    // Row 2 — sub headers
+    const row2 = ws.getRow(2);
+    row2.height = 15;
+    applyCell(row2.getCell(1), '', C.grey_sub, 'FF6B7280', true);
+    applyCell(row2.getCell(2), '', C.grey_sub, 'FF6B7280', true);
+    whs.forEach((_, i) => {
+      const base = 3 + i * 5;
+      const labels = ['Threshold','BP','Optimal','Disc BP','Disc Opt'];
+      labels.forEach((lbl, k) => {
+        applyCell(row2.getCell(base+k), lbl, C.grey_sub, 'FF6B7280', true);
+        if (k === 0 && i > 0) {
+          row2.getCell(base).border = { ...row2.getCell(base).border, left:{ style:'medium', color:{argb:C.wh_sep} } };
+        }
+      });
+    });
+
+    // Data rows
+    rows.forEach((row, ri) => {
+      const eRow   = ws.getRow(ri + 3);
+      eRow.height  = 15;
+      const flagged = whs.some(wh => row.cells[wh] && row.cells[wh].th === 0);
+      const skuBg  = flagged ? C.pink_bg  : C.white;
+      const skuTxt = flagged ? C.pink_txt : 'FF1F2937';
+
+      applyCell(eRow.getCell(1), row.type||'',  skuBg, skuTxt, false, 'left');
+      applyCell(eRow.getCell(2), row.sku,       skuBg, skuTxt, false, 'left');
+
+      whs.forEach((wh, i) => {
+        const c = (row.cells && row.cells[wh] !== undefined && row.cells[wh] !== null)
+          ? row.cells[wh]
+          : {th:null, bp:null, opt:null, discBP:null, discOpt:null};
+        const base = 3 + i * 5;
+
+        // Threshold
+        let thBg=C.white, thTx='FF1F2937';
+        if      (c.th===0)             { thBg=C.red_bg;  thTx=C.red_txt; }
+        else if (c.th!==null&&c.th>1) { thBg=C.blue_bg; thTx=C.blue_txt; }
+        applyCell(eRow.getCell(base),   c.th!==null?c.th:'', thBg, thTx, false);
+
+        // BP
+        let bpBg=C.white, bpTx='FF1F2937';
+        if      (c.bp===0)             { bpBg=C.red_bg;  bpTx=C.red_txt; }
+        else if (c.bp!==null&&c.bp>1) { bpBg=C.blue_bg; bpTx=C.blue_txt; }
+        applyCell(eRow.getCell(base+1), c.bp!==null?c.bp:'', bpBg, bpTx, false);
+
+        // Optimal
+        applyCell(eRow.getCell(base+2), c.opt!==null?c.opt:'', C.white, 'FF1F2937', false);
+
+        // Disc BP
+        const hBP = c.discBP!==null && c.discBP!==0;
+        applyCell(eRow.getCell(base+3),
+          c.discBP!==null ? c.discBP : '',
+          hBP?C.dred_bg:C.white, hBP?C.dred_txt:'FF1F2937', hBP);
+
+        // Disc Opt
+        const hOP = c.discOpt!==null && c.discOpt!==0;
+        applyCell(eRow.getCell(base+4),
+          c.discOpt!==null ? c.discOpt : '',
+          hOP?C.green_bg:C.white, hOP?C.green_txt:'FF1F2937', hOP);
+
+        // WH separator border on first col of each WH group (after first)
+        if (i > 0) {
+          const cell = eRow.getCell(base);
+          cell.border = { ...cell.border, left:{ style:'medium', color:{argb:C.wh_sep} } };
+        }
+      });
+    });
+  }
+
+  await addSheet('All SKUs',       whs, allRows);
+  await addSheet('BP Discrepancy', whs, discRows);
+
+  // Download
+  const buf  = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buf], { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
+}
+
+async function exportExcel() {
+  if (!DB.rows || !DB.rows.length) { alert('No data to export.'); return; }
+
+  // Wait up to 5s for ExcelJS to load
+  for (let i = 0; i < 10; i++) {
+    if (typeof ExcelJS !== 'undefined') break;
+    await new Promise(r => setTimeout(r, 500));
+  }
+  if (typeof ExcelJS === 'undefined') { alert('ExcelJS failed to load. Check your internet connection.'); return; }
+
+  // Use DB.warehouses as canonical WH list — most reliable source
+  const whs = DB.warehouses && DB.warehouses.length ? DB.warehouses :
+    (() => {
+      const s = DB.rows.find(r => r.cells && Object.keys(r.cells).length > 0);
+      return s ? Object.keys(s.cells) : [];
+    })();
+  if (!whs.length) { alert('No warehouse data found.'); return; }
+
+  const btn = document.getElementById('excelBtn');
+  if (btn) { btn.textContent = '⏳ Generating…'; btn.disabled = true; }
+  try {
+    const trackedDisc = DB.rows.filter(row => row.tracked && whs.some(wh => {
+      const c = row.cells[wh];
+      return c && c.discBP !== null && c.discBP !== 0;
+    }));
+    await buildWorkbook(whs, DB.rows, trackedDisc, `inventory_threshold_${new Date().toISOString().slice(0,10)}.xlsx`);
+  } catch(e) {
+    alert('Export failed: ' + e.message);
+    console.error(e);
+  } finally {
+    if (btn) { btn.textContent = '⬇ Excel'; btn.disabled = false; }
+  }
+}
+
+async function exportHistoryExcel() {
+  const snap = getSelectedSnapshot();
+  if (!snap) { alert('No snapshot selected.'); return; }
+  for (let i = 0; i < 10; i++) {
+    if (typeof ExcelJS !== 'undefined') break;
+    await new Promise(r => setTimeout(r, 500));
+  }
+  if (typeof ExcelJS === 'undefined') { alert('ExcelJS failed to load.'); return; }
+  const whs = snap.warehouses && snap.warehouses.length ? snap.warehouses :
+    (() => { const s = snap.rows.find(r => r.cells && Object.keys(r.cells).length > 0); return s ? Object.keys(s.cells) : []; })();
+  if (!whs.length) { alert('No warehouse data in snapshot.'); return; }
+  await buildWorkbook(whs, snap.rows, snap.rows, `discrepancy_${snap.date}.xlsx`);
+}
+
+// ── HELPERS ─────────────────────────────────────────────────
+function step(t){document.getElementById('lstep').textContent=t;}
+function showOverlay(v){document.getElementById('overlay').classList.toggle('hide',!v);}
+function disableRefresh(v){document.getElementById('rfBtn').disabled=v;document.getElementById('rfIco').className=v?'spin-i':'';}
+function hideErr(){document.getElementById('errBanner').classList.remove('on');}
+function showErr(m){const b=document.getElementById('errBanner');b.textContent=m;b.classList.add('on');}
+
+loadAll();
+</script>
+</body>
+</html>
