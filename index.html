@@ -1,0 +1,850 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Inventory Threshold Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+<style>
+  :root {
+    --bg:#f0f2f5; --surface:#ffffff; --surface2:#e8eaed; --border:#d1d5db;
+    --text:#1f2937; --muted:#6b7280; --accent:#2563eb; --accent2:#7c3aed;
+    --blue-bg:#dbeafe; --blue-txt:#1d4ed8;
+    --red-bg:#fee2e2;  --red-txt:#dc2626;
+    --green-bg:#dcfce7;--green-txt:#16a34a;
+    --pink-bg:#fce7f3; --pink-txt:#be185d;
+    --dred-bg:#fecaca; --dred-txt:#991b1b;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;font-size:13px;min-height:100vh;}
+
+  #overlay{position:fixed;inset:0;background:rgba(240,242,245,.93);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:999;gap:14px;}
+  #overlay.hide{display:none;}
+  .ring{width:44px;height:44px;border-radius:50%;border:3px solid var(--border);border-top-color:var(--accent);animation:spin .8s linear infinite;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+  .load-lbl{font-family:'Space Mono',monospace;font-size:11px;color:var(--muted);}
+  .load-step{font-size:11px;color:var(--accent);}
+
+  header{display:flex;align-items:center;justify-content:space-between;padding:14px 24px;background:var(--surface);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:100;box-shadow:0 1px 3px rgba(0,0,0,.06);}
+  .logo{font-family:'Space Mono',monospace;font-size:14px;font-weight:700;color:var(--accent);letter-spacing:.05em;}
+  .logo span{color:var(--muted);}
+  .hdr-r{display:flex;align-items:center;gap:10px;}
+  .live-dot{width:8px;height:8px;border-radius:50%;background:#16a34a;box-shadow:0 0 5px #16a34a;animation:pulse 2s infinite;}
+  @keyframes pulse{0%,100%{opacity:1;}50%{opacity:.4;}}
+  .btn{padding:6px 14px;border-radius:6px;border:1px solid var(--accent);background:transparent;color:var(--accent);font-family:'DM Sans',sans-serif;font-size:12px;font-weight:600;cursor:pointer;transition:all .15s;white-space:nowrap;}
+  .btn:hover{background:var(--accent);color:#fff;}
+  .btn:disabled{opacity:.4;cursor:not-allowed;}
+  .btn.green{border-color:#16a34a;color:#16a34a;}
+  .btn.green:hover{background:#16a34a;color:#fff;}
+  .spin-i{display:inline-block;animation:spin 1s linear infinite;}
+
+  .legend{display:flex;gap:12px;flex-wrap:wrap;align-items:center;padding:8px 24px;background:var(--surface);border-bottom:1px solid var(--border);font-size:11px;color:var(--muted);}
+  .li{display:flex;align-items:center;gap:5px;}
+  .dot{width:10px;height:10px;border-radius:2px;}
+  .d-blue{background:var(--blue-bg);border:1px solid var(--blue-txt);}
+  .d-red{background:var(--red-bg);border:1px solid var(--red-txt);}
+  .d-dred{background:var(--dred-bg);border:1px solid var(--dred-txt);}
+  .d-green{background:var(--green-bg);border:1px solid var(--green-txt);}
+  .d-pink{background:var(--pink-bg);border:1px solid var(--pink-txt);}
+
+  .stats{display:flex;gap:10px;padding:14px 24px;flex-wrap:wrap;}
+  .sc{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 16px;min-width:125px;box-shadow:0 1px 2px rgba(0,0,0,.04);}
+  .sc .lbl{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;}
+  .sc .val{font-family:'Space Mono',monospace;font-size:20px;font-weight:700;color:var(--accent);}
+  .sc .val.r{color:var(--red-txt);}
+  .sc .val.g{color:var(--green-txt);}
+
+  .ctrl{display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:10px 24px;background:var(--surface);border-bottom:1px solid var(--border);}
+  .tabs{display:flex;gap:3px;}
+  .tab{padding:6px 14px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--muted);font-family:'DM Sans',sans-serif;font-size:12px;cursor:pointer;transition:all .15s;}
+  .tab.on{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600;}
+  .tab:not(.on):hover{border-color:var(--accent);color:var(--accent);}
+  .ctrl input[type=text]{padding:6px 11px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;font-size:12px;width:200px;outline:none;}
+  .ctrl input:focus{border-color:var(--accent);}
+  .ctrl select{padding:6px 9px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;font-size:12px;outline:none;cursor:pointer;}
+  .rc{margin-left:auto;font-size:11px;color:var(--muted);font-family:'Space Mono',monospace;}
+  .rc b{color:var(--accent);}
+
+  .err{margin:12px 24px;padding:11px 14px;background:var(--red-bg);border:1px solid var(--red-txt);border-radius:7px;color:var(--red-txt);font-size:12px;line-height:1.6;display:none;}
+  .err.on{display:block;}
+
+  /* Virtual scroll container */
+  .tbl-outer{padding:16px 24px;}
+  .tbl-scroll{
+    overflow:auto;
+    border-radius:8px;
+    border:1px solid var(--border);
+    box-shadow:0 1px 3px rgba(0,0,0,.05);
+    max-height:calc(100vh - 300px);
+    position:relative;
+  }
+
+  table{width:max-content;min-width:100%;border-collapse:collapse;font-size:12px;background:var(--surface);}
+
+  /* Sticky headers inside scroll container */
+  .gh th{
+    background:#e0e7ff;color:var(--accent);
+    font-family:'Space Mono',monospace;font-size:10px;letter-spacing:.07em;text-transform:uppercase;
+    padding:8px 10px;border:1px solid var(--border);text-align:center;white-space:nowrap;
+    position:sticky;top:0;z-index:12;
+  }
+  .gh th.skh{background:var(--surface2);color:var(--muted);}
+  .sh th{
+    background:var(--surface2);color:var(--muted);
+    font-size:10px;letter-spacing:.04em;text-transform:uppercase;
+    padding:6px 10px;border:1px solid var(--border);text-align:center;white-space:nowrap;
+    position:sticky;top:34px;z-index:12;
+  }
+  .sh th.skh{text-align:left;position:sticky;left:0;z-index:13;background:var(--surface2);}
+  .sh th.tyh{position:sticky;left:220px;z-index:13;background:var(--surface2);text-align:left;}
+
+  tbody tr{border-bottom:1px solid var(--border);}
+  tbody tr:hover{background:#f5f7ff;}
+  td{padding:5px 10px;border-right:1px solid var(--border);text-align:center;white-space:nowrap;}
+  td.tyc{font-size:10px;color:var(--muted);text-align:left;padding-left:9px;min-width:110px;border-right:1px solid var(--border);position:sticky;left:0;background:var(--surface);z-index:5;}
+  td.skc{text-align:left;font-family:'Space Mono',monospace;font-size:10px;position:sticky;left:110px;background:var(--surface);z-index:5;padding-left:12px;min-width:220px;border-right:2px solid var(--border);}
+  tbody tr:hover td.skc,tbody tr:hover td.tyc{background:#f5f7ff;}
+
+  .cb{background:var(--blue-bg);color:var(--blue-txt);font-weight:500;}
+  .cr{background:var(--red-bg);color:var(--red-txt);font-weight:500;}
+  .cdr{background:var(--dred-bg);color:var(--dred-txt);font-weight:700;}
+  .cdg{background:var(--green-bg);color:var(--green-txt);font-weight:700;}
+  .cz{background:var(--pink-bg);color:var(--pink-txt);}
+  td.sep,th.sep{border-left:2px solid var(--accent2)!important;}
+
+  /* Virtual spacers */
+  tr.vspacer td{padding:0;border:none;background:var(--surface);}
+
+  .empty{text-align:center;padding:60px 20px;color:var(--muted);background:var(--surface);}
+  .empty .big{font-size:38px;margin-bottom:8px;}
+  #updatedAt{font-size:10px;color:var(--muted);font-family:'Space Mono',monospace;}
+</style>
+</head>
+<body>
+
+<div id="overlay">
+  <div class="ring"></div>
+  <div class="load-lbl">Loading inventory data…</div>
+  <div class="load-step" id="lstep">Connecting to Apps Script…</div>
+</div>
+
+<header>
+  <div class="logo">INVENTORY<span>/</span>THRESHOLD</div>
+  <div class="hdr-r">
+    <div class="live-dot"></div>
+    <span id="updatedAt">—</span>
+    <button class="btn green" id="excelBtn" onclick="exportExcel()">⬇ Excel</button>
+    <button class="btn" id="rfBtn" onclick="loadAll()"><span id="rfIco">↻</span> Refresh</button>
+  </div>
+</header>
+
+<div class="legend">
+  <div class="li"><div class="dot d-blue"></div>Threshold &gt; 1</div>
+  <div class="li"><div class="dot d-red"></div>Threshold = 0</div>
+  <div class="li"><div class="dot d-pink"></div>SKU has zero threshold</div>
+  <div class="li"><div class="dot d-dred"></div>BP Discrepancy</div>
+  <div class="li"><div class="dot d-green"></div>Optimal Discrepancy</div>
+</div>
+
+<div id="errBanner" class="err"></div>
+
+<div class="stats">
+  <div class="sc"><div class="lbl">Total SKUs</div><div class="val" id="sSkus">—</div></div>
+  <div class="sc"><div class="lbl">Warehouses</div><div class="val" id="sWH">—</div></div>
+  <div class="sc"><div class="lbl">BP Discrepancies</div><div class="val r" id="sBP">—</div></div>
+  <div class="sc"><div class="lbl">Optimal Discrepancies</div><div class="val g" id="sOpt">—</div></div>
+  <div class="sc"><div class="lbl">Zero Threshold SKUs</div><div class="val r" id="sZero">—</div></div>
+</div>
+
+<div class="ctrl">
+  <div class="tabs">
+    <button class="tab on" onclick="switchTab('all')">All SKUs</button>
+    <button class="tab"    onclick="switchTab('disc')">BP Discrepancy Only</button>
+    <button class="tab"    onclick="switchTab('history')">📅 History</button>
+  </div>
+  <input type="text" id="srch" placeholder="🔍 Search SKU…" oninput="onFilter()"/>
+  <select id="whSel" onchange="onFilter()"><option value="">All Warehouses</option></select>
+  <div class="rc" id="rc"><b>0</b> rows</div>
+</div>
+
+<div id="historyPanel" style="display:none;padding:16px 24px;">
+  <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap;">
+    <label style="font-size:12px;color:var(--muted);font-weight:600;">Select Date:</label>
+    <select id="historyDateSel" onchange="renderHistory()" style="padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-family:'DM Sans',sans-serif;font-size:12px;outline:none;cursor:pointer;min-width:160px;"></select>
+    <span id="historyCount" style="font-size:11px;color:var(--muted);font-family:'Space Mono',monospace;"></span>
+    <button class="btn" id="snapBtn" onclick="saveSnapshotNow()" style="border-color:#d97706;color:#d97706;">📸 Save Snapshot</button>
+    <button class="btn green" onclick="exportHistoryExcel()" style="margin-left:auto;">⬇ Excel</button>
+  </div>
+  <div class="tbl-scroll" id="historyScroll" style="max-height:calc(100vh - 340px);">
+    <div id="htw"></div>
+  </div>
+</div>
+
+<div class="tbl-outer">
+  <div class="tbl-scroll" id="tblScroll">
+    <div id="tw"></div>
+  </div>
+</div>
+
+<script>
+const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyLh-hR-Pop3D3FpwRLd_AX6LAQJt5bw5BJVKm2Xz2R0YEuvCQaSexdOFQHp61EC0FEJg/exec';
+
+const ROW_H       = 29;   // px per data row
+const BUFFER      = 15;   // extra rows above/below viewport
+const BATCH_SIZE  = 60;   // rows rendered per animation frame chunk
+
+let mode         = 'all';
+let DB           = { warehouses:[], rows:[], stats:{} };
+let visibleRows  = [];    // current filtered rows
+let currentWHs   = [];
+let renderTimer  = null;
+let tableEl      = null;  // <table> reference
+let tbodyEl      = null;  // <tbody> reference
+let topSpacer    = null;
+let botSpacer    = null;
+let lastStart    = -1;
+let lastEnd      = -1;
+let totalCols    = 0;
+
+// ── LOAD ────────────────────────────────────────────────────
+function loadAll() {
+  showOverlay(true); disableRefresh(true); hideErr();
+  step('Fetching data from Apps Script…');
+  const old = document.getElementById('jsonp_script');
+  if (old) old.remove();
+  if (window.__jsonpTimeout) clearTimeout(window.__jsonpTimeout);
+
+  window.__inventoryCallback = function(data) {
+    const s = document.getElementById('jsonp_script');
+    if (s) s.remove();
+    clearTimeout(window.__jsonpTimeout);
+    if (!data.ok) { showErr('Apps Script error: '+(data.error||'Unknown')); showOverlay(false); disableRefresh(false); return; }
+    DB = data;
+    populateWHFilter();
+    updateStats(data.stats);
+    const d = new Date(data.updated);
+    document.getElementById('updatedAt').textContent = d.toLocaleDateString()+' '+d.toLocaleTimeString();
+    applyFilters();
+    showOverlay(false); disableRefresh(false);
+  };
+
+  window.__jsonpTimeout = setTimeout(()=>{
+    showErr('Request timed out. Make sure the Apps Script is deployed with access "Anyone".');
+    showOverlay(false); disableRefresh(false);
+  }, 25000);
+
+  const s = document.createElement('script');
+  s.id = 'jsonp_script';
+  s.src = APPS_SCRIPT_URL + '?callback=__inventoryCallback';
+  s.onerror = ()=>{ clearTimeout(window.__jsonpTimeout); showErr('Failed to reach Apps Script.'); showOverlay(false); disableRefresh(false); };
+  document.head.appendChild(s);
+}
+
+function updateStats(s) {
+  document.getElementById('sSkus').textContent  = s.totalSKUs;
+  document.getElementById('sWH').textContent    = s.totalWH;
+  document.getElementById('sBP').textContent    = s.totalBPDisc;
+  document.getElementById('sOpt').textContent   = s.totalOptDisc;
+  document.getElementById('sZero').textContent  = s.totalZero;
+}
+
+function populateWHFilter() {
+  const sel = document.getElementById('whSel');
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">All Warehouses</option>';
+  DB.warehouses.forEach(wh => {
+    const o = document.createElement('option');
+    o.value = wh; o.textContent = wh;
+    if (wh === cur) o.selected = true;
+    sel.appendChild(o);
+  });
+}
+
+// ── FILTER ──────────────────────────────────────────────────
+function switchTab(t) {
+  mode = t;
+  document.querySelectorAll('.tabs .tab').forEach((el,i)=>el.classList.toggle('on', i===(t==='all'?0:t==='disc'?1:2)));
+  const isHistory = t === 'history';
+  document.getElementById('historyPanel').style.display = isHistory ? 'block' : 'none';
+  document.getElementById('tblScroll').closest('.tbl-outer').style.display = isHistory ? 'none' : 'block';
+  // hide search/filter controls for history
+  document.getElementById('srch').style.display  = isHistory ? 'none' : '';
+  document.getElementById('whSel').style.display = isHistory ? 'none' : '';
+  document.getElementById('rc').style.display    = isHistory ? 'none' : '';
+  if (isHistory) {
+    loadHistory();
+  } else {
+    applyFilters();
+  }
+}
+
+function onFilter() {
+  clearTimeout(renderTimer);
+  renderTimer = setTimeout(applyFilters, 120); // debounce search input
+}
+
+function applyFilters() {
+  const search = document.getElementById('srch').value.toLowerCase();
+  const whF    = document.getElementById('whSel').value;
+  currentWHs   = DB.warehouses ? (whF ? DB.warehouses.filter(w=>w===whF) : DB.warehouses) : [];
+  totalCols    = 2 + currentWHs.length * 5;
+
+  let rows = DB.rows || [];
+  if (search) rows = rows.filter(r => r.sku.toLowerCase().includes(search));
+  if (mode === 'disc') {
+    // Only SKUs from the SKUs tab (tracked=true) that have BP discrepancy
+    rows = rows.filter(row => row.tracked && currentWHs.some(wh => {
+      const c = row.cells[wh];
+      return c && c.discBP !== null && c.discBP !== 0;
+    }));
+  }
+
+  visibleRows = rows;
+
+  // For disc mode: only show WH columns that have at least 1 BP discrepancy
+  if (mode === 'disc') {
+    currentWHs = currentWHs.filter(wh => rows.some(row => {
+      const c = row.cells && row.cells[wh];
+      return c && c.discBP !== null && c.discBP !== 0;
+    }));
+  }
+
+  document.getElementById('rc').innerHTML = `<b>${rows.length}</b> rows`;
+
+  buildTable();
+}
+
+// ── BUILD TABLE SKELETON ─────────────────────────────────────
+function buildTable() {
+  const tw = document.getElementById('tw');
+  const scroll = document.getElementById('tblScroll');
+
+  if (!visibleRows.length) {
+    tw.innerHTML = `<div class="empty"><div class="big">${DB.rows&&DB.rows.length?'🔍':'📦'}</div><p>${DB.rows&&DB.rows.length?'No rows match your filters.':'Waiting for data…'}</p></div>`;
+    return;
+  }
+
+  // Build header HTML once
+  let hdr = '<table id="mainTable"><thead>';
+  hdr += '<tr class="gh"><th class="skh" rowspan="2" style="min-width:110px;position:sticky;left:0;z-index:14">Type</th>';
+  hdr += '<th class="skh" rowspan="2" style="min-width:220px;position:sticky;left:110px;z-index:14">SKU</th>';
+  currentWHs.forEach((wh,i)=>{ hdr += `<th colspan="5"${i>0?' class="sep"':''}>${wh}</th>`; });
+  hdr += '</tr><tr class="sh"><th class="skh" style="display:none"></th>';
+  currentWHs.forEach((wh,i)=>{
+    const s=i>0?' sep':'';
+    hdr+=`<th class="${s}">Threshold</th><th>BP</th><th>Optimal</th><th>Disc BP</th><th>Disc Opt</th>`;
+  });
+  hdr += '</tr></thead><tbody id="vbody">';
+  // Top spacer
+  hdr += `<tr class="vspacer" id="topSpacer"><td colspan="${totalCols}" style="height:0px"></td></tr>`;
+  hdr += '</tbody></table>';
+
+  tw.innerHTML = hdr;
+  tableEl  = document.getElementById('mainTable');
+  tbodyEl  = document.getElementById('vbody');
+  topSpacer= document.getElementById('topSpacer');
+  lastStart = -1; lastEnd = -1;
+
+  // Bottom spacer — append after topSpacer
+  const botTr = document.createElement('tr');
+  botTr.className = 'vspacer'; botTr.id = 'botSpacer';
+  const botTd = document.createElement('td');
+  botTd.colSpan = totalCols;
+  botTd.style.height = (visibleRows.length * ROW_H) + 'px';
+  botTr.appendChild(botTd);
+  tbodyEl.appendChild(botTr);
+  botSpacer = botTr;
+
+  // Attach scroll listener
+  scroll.onscroll = onScroll;
+  // Initial render
+  renderViewport(0);
+}
+
+// ── VIRTUAL SCROLL ───────────────────────────────────────────
+function onScroll() {
+  renderViewport(document.getElementById('tblScroll').scrollTop);
+}
+
+function renderViewport(scrollTop) {
+  if (!visibleRows.length || !tbodyEl) return;
+  const viewH    = document.getElementById('tblScroll').clientHeight;
+  const startIdx = Math.max(0, Math.floor(scrollTop / ROW_H) - BUFFER);
+  const endIdx   = Math.min(visibleRows.length - 1, Math.ceil((scrollTop + viewH) / ROW_H) + BUFFER);
+
+  if (startIdx === lastStart && endIdx === lastEnd) return;
+  lastStart = startIdx; lastEnd = endIdx;
+
+  // Update spacers
+  topSpacer.firstChild.style.height = (startIdx * ROW_H) + 'px';
+  botSpacer.firstChild.style.height = ((visibleRows.length - 1 - endIdx) * ROW_H) + 'px';
+
+  // Build visible rows HTML
+  const fragment = document.createDocumentFragment();
+  // Insert top spacer reference
+  fragment.appendChild(topSpacer.cloneNode(true));
+
+  let html = '';
+  for (let i = startIdx; i <= endIdx; i++) {
+    html += buildRowHTML(visibleRows[i]);
+  }
+
+  // Replace rows between spacers efficiently
+  // Remove existing data rows (keep spacers)
+  const existing = tbodyEl.querySelectorAll('tr:not(.vspacer)');
+  existing.forEach(r => r.remove());
+
+  // Insert new rows before botSpacer
+  const tmp = document.createElement('tbody');
+  tmp.innerHTML = html;
+  while (tmp.firstChild) {
+    tbodyEl.insertBefore(tmp.firstChild, botSpacer);
+  }
+}
+
+// ── BUILD ROW HTML ───────────────────────────────────────────
+function buildRowHTML(row) {
+  const flagged = currentWHs.some(wh => row.cells[wh] && row.cells[wh].th === 0);
+  let h = `<tr style="height:${ROW_H}px">`;
+  h += `<td class="tyc${flagged?' cz':''}">${row.type||''}</td>`;
+  h += `<td class="skc${flagged?' cz':''}">${row.sku}</td>`;
+
+  currentWHs.forEach((wh, i) => {
+    const c   = row.cells[wh] || {th:null,bp:null,opt:null,discBP:null,discOpt:null};
+    const sep = i>0?' sep':'';
+
+    let tc=sep;
+    if      (c.th===0)              tc+=' cr';
+    else if (c.th!==null&&c.th>1)  tc+=' cb';
+    h+=`<td class="${tc}">${c.th!==null?c.th:'—'}</td>`;
+
+    let bc='';
+    if      (c.bp===0)              bc=' cr';
+    else if (c.bp!==null&&c.bp>1)  bc=' cb';
+    h+=`<td class="${bc}">${c.bp!==null?c.bp:'—'}</td>`;
+
+    h+=`<td>${c.opt!==null?c.opt:'—'}</td>`;
+
+    const bpD=c.discBP!==null&&c.discBP!==0;
+    h+=`<td class="${bpD?' cdr':''}">${c.discBP!==null?(c.discBP>0?'+':'')+c.discBP:'—'}</td>`;
+
+    const opD=c.discOpt!==null&&c.discOpt!==0;
+    h+=`<td class="${opD?' cdg':''}">${c.discOpt!==null?(c.discOpt>0?'+':'')+c.discOpt:'—'}</td>`;
+  });
+
+  h += '</tr>';
+  return h;
+}
+
+// ── SAVE SNAPSHOT NOW ────────────────────────────────────────
+function saveSnapshotNow() {
+  const btn = document.getElementById('snapBtn');
+  if (btn) { btn.textContent='⏳ Saving…'; btn.disabled=true; }
+  const old = document.getElementById('snap_jsonp');
+  if (old) old.remove();
+  window.__snapCallback = function(data) {
+    const s = document.getElementById('snap_jsonp');
+    if (s) s.remove();
+    if (btn) { btn.textContent='📸 Save Snapshot'; btn.disabled=false; }
+    if (data.ok) { alert('Snapshot saved!'); historyData = null; }
+    else alert('Snapshot error: ' + (data.error||'Unknown'));
+  };
+  const s = document.createElement('script');
+  s.id  = 'snap_jsonp';
+  s.src = APPS_SCRIPT_URL + '?action=saveSnapshot&callback=__snapCallback';
+  s.onerror = () => { if(btn){btn.textContent='📸 Save Snapshot';btn.disabled=false;} alert('Failed to reach Apps Script.'); };
+  document.head.appendChild(s);
+}
+
+// ── HISTORY ──────────────────────────────────────────────────
+let historyData = null;
+
+function loadHistory() {
+  const htw = document.getElementById('htw');
+  if (historyData) { populateHistoryDates(); renderHistory(); return; }
+  htw.innerHTML = '<div class="empty"><div class="big">⏳</div><p>Loading history…</p></div>';
+  const old = document.getElementById('history_jsonp');
+  if (old) old.remove();
+  window.__historyCallback = function(data) {
+    const s = document.getElementById('history_jsonp');
+    if (s) s.remove();
+    if (!data.ok) {
+      htw.innerHTML = `<div class="empty"><div class="big">⚠️</div><p>${data.error||'No history yet.'}</p></div>`;
+      return;
+    }
+    historyData = data.snapshots || [];
+    if (!historyData.length) {
+      htw.innerHTML = '<div class="empty"><div class="big">📭</div><p>No history snapshots yet.<br>Run rebuildCache in Apps Script to create one.</p></div>';
+      return;
+    }
+    populateHistoryDates();
+    renderHistory();
+  };
+  const s = document.createElement('script');
+  s.id  = 'history_jsonp';
+  s.src = APPS_SCRIPT_URL + '?action=history&callback=__historyCallback';
+  s.onerror = () => { htw.innerHTML = '<div class="empty"><div class="big">⚠️</div><p>Failed to load history.</p></div>'; };
+  document.head.appendChild(s);
+}
+
+function populateHistoryDates() {
+  const sel = document.getElementById('historyDateSel');
+  const cur = sel.value;
+  sel.innerHTML = '';
+  historyData.forEach((snap, i) => {
+    const o = document.createElement('option');
+    o.value = i;
+    o.textContent = snap.date + '  (' + snap.count + ' discrepancies)';
+    if (i === 0 && !cur) o.selected = true;
+    sel.appendChild(o);
+  });
+}
+
+function getSelectedSnapshot() {
+  const idx = parseInt(document.getElementById('historyDateSel').value) || 0;
+  return historyData && historyData[idx] ? historyData[idx] : null;
+}
+
+function renderHistory() {
+  const snap = getSelectedSnapshot();
+  const htw  = document.getElementById('htw');
+  if (!snap) { htw.innerHTML = '<div class="empty"><div class="big">📭</div><p>No snapshot selected.</p></div>'; return; }
+  // Only show WH columns that have at least 1 discrepancy
+  const whs  = snap.warehouses.filter(wh => snap.rows.some(row => {
+    const c = row.cells && row.cells[wh];
+    return c && c.discBP !== null && c.discBP !== 0;
+  }));
+  const rows = snap.rows;
+  document.getElementById('historyCount').textContent = rows.length + ' SKUs with BP discrepancy';
+  if (!rows.length) {
+    htw.innerHTML = '<div class="empty"><div class="big">✅</div><p>No BP discrepancies on this date.</p></div>';
+    return;
+  }
+  let h = '<table><thead>';
+  h += '<tr class="gh"><th class="skh" rowspan="2" style="min-width:110px;position:sticky;left:0;z-index:14">Type</th>';
+  h += '<th class="skh" rowspan="2" style="min-width:220px;position:sticky;left:110px;z-index:14">SKU</th>';
+  whs.forEach((wh,i)=>{ h+=`<th colspan="5"${i>0?' class="sep"':''}>${wh}</th>`; });
+  h += '</tr><tr class="sh">';
+  whs.forEach((wh,i)=>{
+    const s=i>0?' sep':'';
+    h+=`<th class="${s}">Threshold</th><th>BP</th><th>Optimal</th><th>Disc BP</th><th>Disc Opt</th>`;
+  });
+  h += '</tr></thead><tbody>';
+  rows.forEach(row => {
+    const flagged = whs.some(wh => row.cells[wh] && row.cells[wh].th === 0);
+    h += '<tr>';
+    h += `<td class="tyc${flagged?' cz':''}">${row.type||''}</td>`;
+    h += `<td class="skc${flagged?' cz':''}">${row.sku}</td>`;
+    whs.forEach((wh,i) => {
+      const c = row.cells[wh] || {th:null,bp:null,opt:null,discBP:null,discOpt:null};
+      const sep=i>0?' sep':'';
+      let tc=sep; if(c.th===0)tc+=' cr'; else if(c.th!==null&&c.th>1)tc+=' cb';
+      h+=`<td class="${tc}">${c.th!==null?c.th:'—'}</td>`;
+      let bc=''; if(c.bp===0)bc=' cr'; else if(c.bp!==null&&c.bp>1)bc=' cb';
+      h+=`<td class="${bc}">${c.bp!==null?c.bp:'—'}</td>`;
+      h+=`<td>${c.opt!==null?c.opt:'—'}</td>`;
+      const bD=c.discBP!==null&&c.discBP!==0;
+      h+=`<td class="${bD?' cdr':''}">${c.discBP!==null?(c.discBP>0?'+':'')+c.discBP:'—'}</td>`;
+      const oD=c.discOpt!==null&&c.discOpt!==0;
+      h+=`<td class="${oD?' cdg':''}">${c.discOpt!==null?(c.discOpt>0?'+':'')+c.discOpt:'—'}</td>`;
+    });
+    h += '</tr>';
+  });
+  h += '</tbody></table>';
+  htw.innerHTML = h;
+}
+
+// ── EXCEL EXPORT — pure JS XLSX writer ──────────────────────
+// Writes .xlsx (Office Open XML) directly — no library, full formatting
+
+const XL = {
+  // Color map
+  C: {
+    blue_bg:'DBEAFE', blue_fg:'1D4ED8',
+    red_bg:'FEE2E2',  red_fg:'DC2626',
+    dred_bg:'FECACA', dred_fg:'991B1B',
+    grn_bg:'DCFCE7',  grn_fg:'16A34A',
+    pink_bg:'FCE7F3', pink_fg:'BE185D',
+    hdr_bg:'E0E7FF',  sub_bg:'E8EAED',
+    hdr_fg:'2563EB',  sub_fg:'6B7280',
+    sep:'7C3AED',     white:'FFFFFF',
+    def_fg:'1F2937'
+  },
+
+  // Build styles XML — pre-define all fill/font/border combos
+  buildStyles() {
+    const C = this.C;
+    // Fills: 0=none,1=gray(required), then our fills
+    const fillColors = [
+      null, null, // 0,1 reserved
+      C.white, C.blue_bg, C.red_bg, C.dred_bg, C.grn_bg, C.pink_bg, C.hdr_bg, C.sub_bg
+    ];
+    // fill index map
+    this.FI = { white:2, blue_bg:3, red_bg:4, dred_bg:5, grn_bg:6, pink_bg:7, hdr_bg:8, sub_bg:9 };
+
+    const fills = fillColors.map((c,i) =>
+      i<2 ? (i===0?'<fill><patternFill patternType="none"/></fill>':'<fill><patternFill patternType="gray125"/></fill>')
+          : `<fill><patternFill patternType="solid"><fgColor rgb="FF${c}"/></patternFill></fill>`
+    ).join('');
+
+    // Fonts: index map
+    // 0=default, 1=hdr_blue_bold, 2=sub_gray_bold, 3=def, 4=blue_txt, 5=red_txt, 6=dred_bold, 7=grn_bold, 8=pink_txt, 9=muted
+    this.FONT = { def:0, hdr:1, sub:2, norm:3, blue:4, red:5, dred:6, grn:7, pink:8, muted:9 };
+    const fonts = [
+      `<font><sz val="9"/><name val="Arial"/><color rgb="FF${C.def_fg}"/></font>`,
+      `<font><sz val="9"/><name val="Arial"/><b/><color rgb="FF${C.hdr_fg}"/></font>`,
+      `<font><sz val="9"/><name val="Arial"/><b/><color rgb="FF${C.sub_fg}"/></font>`,
+      `<font><sz val="9"/><name val="Arial"/><color rgb="FF${C.def_fg}"/></font>`,
+      `<font><sz val="9"/><name val="Arial"/><color rgb="FF${C.blue_fg}"/></font>`,
+      `<font><sz val="9"/><name val="Arial"/><color rgb="FF${C.red_fg}"/></font>`,
+      `<font><sz val="9"/><name val="Arial"/><b/><color rgb="FF${C.dred_fg}"/></font>`,
+      `<font><sz val="9"/><name val="Arial"/><b/><color rgb="FF${C.grn_fg}"/></font>`,
+      `<font><sz val="9"/><name val="Arial"/><color rgb="FF${C.pink_fg}"/></font>`,
+      `<font><sz val="9"/><name val="Arial"/><color rgb="FF${C.sub_fg}"/></font>`,
+    ].join('');
+
+    const border = `<border><left/><right/><top/><bottom/><diagonal/></border>`;
+    const borders = border.repeat(2);
+
+    // XF (cell format) index — combinations of fill+font+align
+    // Build a lookup: key = "fillIdx_fontIdx_alignH_wrapText" -> xfIdx
+    this.XF = {};
+    this._xfList = [];
+    const numFmtId = 0;
+    const addXF = (fillId, fontId, alignH, bold) => {
+      const key = `${fillId}_${fontId}_${alignH}`;
+      if (this.XF[key] !== undefined) return this.XF[key];
+      const idx = this._xfList.length;
+      this.XF[key] = idx;
+      this._xfList.push(`<xf numFmtId="${numFmtId}" fontId="${fontId}" fillId="${fillId}" borderId="0" xfId="0"><alignment horizontal="${alignH}" vertical="center"/></xf>`);
+      return idx;
+    };
+
+    // Pre-add all XFs we'll use
+    this.S = {
+      def:      addXF(this.FI.white,  this.FONT.norm,  'left'),
+      hdr:      addXF(this.FI.hdr_bg, this.FONT.hdr,   'center'),
+      sub:      addXF(this.FI.sub_bg, this.FONT.sub,   'center'),
+      skuHdr:   addXF(this.FI.sub_bg, this.FONT.sub,   'left'),
+      skuDef:   addXF(this.FI.white,  this.FONT.norm,  'left'),
+      skuPink:  addXF(this.FI.pink_bg,this.FONT.pink,  'left'),
+      typDef:   addXF(this.FI.white,  this.FONT.muted, 'left'),
+      typPink:  addXF(this.FI.pink_bg,this.FONT.pink,  'left'),
+      blue:     addXF(this.FI.blue_bg,this.FONT.blue,  'center'),
+      red:      addXF(this.FI.red_bg, this.FONT.red,   'center'),
+      dred:     addXF(this.FI.dred_bg,this.FONT.dred,  'center'),
+      grn:      addXF(this.FI.grn_bg, this.FONT.grn,   'center'),
+      pink:     addXF(this.FI.pink_bg,this.FONT.pink,  'center'),
+      norm:     addXF(this.FI.white,  this.FONT.norm,  'center'),
+    };
+
+    const cellXfs = `<cellXfs count="${this._xfList.length}">${this._xfList.join('')}</cellXfs>`;
+    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+<fonts count="${10}">${fonts}</fonts>
+<fills count="${fillColors.length}">${fills}</fills>
+<borders count="2">${borders}</borders>
+<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
+${cellXfs}
+</styleSheet>`;
+  },
+
+  esc(v) {
+    if (v === null || v === undefined || v === '') return '';
+    return String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  },
+
+  colName(n) { // 1-indexed col to A,B,...Z,AA,...
+    let s=''; while(n>0){s=String.fromCharCode(64+(n%26||26))+s;n=Math.floor((n-1)/26);} return s;
+  },
+
+  buildSheet(whs, rows) {
+    const S = this.S;
+    const lines = [];
+    const merges = [];
+    const numCols = 2 + whs.length * 5;
+
+    const cell = (r,c,val,sIdx,isNum) => {
+      const ref = this.colName(c)+r;
+      if (val === '' || val === null || val === undefined) {
+        return `<c r="${ref}" s="${sIdx}"><v></v></c>`;
+      }
+      if (isNum && val !== '' && !isNaN(val)) {
+        return `<c r="${ref}" t="n" s="${sIdx}"><v>${val}</v></c>`;
+      }
+      return `<c r="${ref}" t="inlineStr" s="${sIdx}"><is><t>${this.esc(String(val))}</t></is></c>`;
+    };
+
+    // Row 1 — group headers
+    let r1 = `<row r="1" ht="18" customHeight="1">`;
+    r1 += cell(1,1,'Type',S.skuHdr,false);
+    r1 += cell(1,2,'SKU', S.skuHdr,false);
+    whs.forEach((wh,i) => {
+      const base = 3+i*5;
+      r1 += cell(1,base,wh,S.hdr,false);
+      for(let k=1;k<5;k++) r1 += cell(1,base+k,'',S.hdr,false);
+      merges.push(`<mergeCell ref="${this.colName(base)}1:${this.colName(base+4)}1"/>`);
+    });
+    r1 += '</row>';
+    lines.push(r1);
+
+    // Row 2 — sub headers
+    let r2 = `<row r="2" ht="15" customHeight="1">`;
+    r2 += cell(2,1,'',S.sub,false);
+    r2 += cell(2,2,'',S.sub,false);
+    whs.forEach((_,i) => {
+      const base=3+i*5;
+      const lbls=['Threshold','BP','Optimal','Disc BP','Disc Opt'];
+      lbls.forEach((l,k)=>{ r2+=cell(2,base+k,l,S.sub,false); });
+    });
+    r2 += '</row>';
+    lines.push(r2);
+
+    // Merge Type+SKU headers across 2 rows
+    merges.push('<mergeCell ref="A1:A2"/>');
+    merges.push('<mergeCell ref="B1:B2"/>');
+
+    // Data rows
+    rows.forEach((row,ri) => {
+      const rn = ri+3;
+      const flagged = whs.some(wh=>row.cells&&row.cells[wh]&&row.cells[wh].th===0);
+      let rr = `<row r="${rn}" ht="15" customHeight="1">`;
+      rr += cell(rn,1,row.type||'', flagged?S.typPink:S.typDef, false);
+      rr += cell(rn,2,row.sku,      flagged?S.skuPink:S.skuDef, false);
+      whs.forEach((wh,i) => {
+        const c = (row.cells&&row.cells[wh]) ? row.cells[wh] : {th:null,bp:null,opt:null,discBP:null,discOpt:null};
+        const base=3+i*5;
+
+        // Threshold
+        let ts=S.norm;
+        if(c.th===0)ts=S.red; else if(c.th!==null&&c.th>1)ts=S.blue;
+        rr+=cell(rn,base,c.th!==null?c.th:'',ts,true);
+
+        // BP
+        let bs=S.norm;
+        if(c.bp===0)bs=S.red; else if(c.bp!==null&&c.bp>1)bs=S.blue;
+        rr+=cell(rn,base+1,c.bp!==null?c.bp:'',bs,true);
+
+        // Optimal
+        rr+=cell(rn,base+2,c.opt!==null?c.opt:'',S.norm,true);
+
+        // Disc BP
+        const hBP=c.discBP!==null&&c.discBP!==0;
+        rr+=cell(rn,base+3,c.discBP!==null?c.discBP:'',hBP?S.dred:S.norm,true);
+
+        // Disc Opt
+        const hOP=c.discOpt!==null&&c.discOpt!==0;
+        rr+=cell(rn,base+4,c.discOpt!==null?c.discOpt:'',hOP?S.grn:S.norm,true);
+      });
+      rr+='</row>';
+      lines.push(rr);
+    });
+
+    // Col widths
+    let cols='<cols>';
+    cols+=`<col min="1" max="1" width="14" customWidth="1"/>`;
+    cols+=`<col min="2" max="2" width="28" customWidth="1"/>`;
+    whs.forEach((_,i)=>{
+      const b=3+i*5;
+      cols+=`<col min="${b}" max="${b}" width="10" customWidth="1"/>`;
+      cols+=`<col min="${b+1}" max="${b+1}" width="8" customWidth="1"/>`;
+      cols+=`<col min="${b+2}" max="${b+2}" width="10" customWidth="1"/>`;
+      cols+=`<col min="${b+3}" max="${b+3}" width="9" customWidth="1"/>`;
+      cols+=`<col min="${b+4}" max="${b+4}" width="9" customWidth="1"/>`;
+    });
+    cols+='</cols>';
+
+    const mergeXml = merges.length ? `<mergeCells count="${merges.length}">${merges.join('')}</mergeCells>` : '';
+    const sheetData = `<sheetData>${lines.join('')}</sheetData>`;
+    const freeze = `<sheetViews><sheetView workbookViewId="0"><pane xSplit="2" ySplit="2" topLeftCell="C3" activePane="bottomRight" state="frozen"/></sheetView></sheetViews>`;
+
+    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+${freeze}${cols}${sheetData}${mergeXml}
+</worksheet>`;
+  },
+
+  async generate(whs, allRows, discRows, discWHs, filename) {
+    // Build styles once
+    const stylesXml  = this.buildStyles();
+    const sheet1Xml  = this.buildSheet(whs, allRows);
+    const sheet2Xml  = this.buildSheet(discWHs, discRows);
+
+    const sharedXml  = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="0" uniqueCount="0"></sst>`;
+    const wbXml      = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="All SKUs" sheetId="1" r:id="rId1"/><sheet name="BP Discrepancy" sheetId="2" r:id="rId2"/></sheets></workbook>`;
+    const wbRelsXml  = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings" Target="sharedStrings.xml"/><Relationship Id="rId4" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`;
+    const relsXml    = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`;
+    const contentXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/sharedStrings.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>`;
+
+    // Use fflate (fast zip) if available, else JSZip
+    const files = {
+      '[Content_Types].xml': contentXml,
+      '_rels/.rels': relsXml,
+      'xl/workbook.xml': wbXml,
+      'xl/_rels/workbook.xml.rels': wbRelsXml,
+      'xl/styles.xml': stylesXml,
+      'xl/sharedStrings.xml': sharedXml,
+      'xl/worksheets/sheet1.xml': sheet1Xml,
+      'xl/worksheets/sheet2.xml': sheet2Xml,
+    };
+
+    const zip = new JSZip();
+    Object.entries(files).forEach(([path, xml]) => zip.file(path, xml));
+    const blob = await zip.generateAsync({ type:'blob', compression:'DEFLATE' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href=url; a.download=filename; a.click();
+    setTimeout(()=>URL.revokeObjectURL(url),2000);
+  }
+};
+
+function exportExcel() {
+  if (!DB.rows||!DB.rows.length){alert('No data to export.');return;}
+  const whs = DB.warehouses||[];
+  if (!whs.length){alert('No warehouse data.');return;}
+
+  const discRows = DB.rows.filter(row=>row.tracked&&whs.some(wh=>{
+    const c=row.cells&&row.cells[wh];return c&&c.discBP!==null&&c.discBP!==0;
+  }));
+
+  // Only WH columns with at least 1 discrepancy for disc sheet
+  const discWHs = whs.filter(wh=>discRows.some(row=>{
+    const c=row.cells&&row.cells[wh];return c&&c.discBP!==null&&c.discBP!==0;
+  }));
+
+  const date = new Date().toISOString().slice(0,10);
+  const btn  = document.getElementById('excelBtn');
+  if(btn){btn.textContent='⏳ Building…';btn.disabled=true;}
+  setTimeout(async()=>{
+    try{ await XL.generate(whs, DB.rows, discRows, discWHs, `inventory_threshold_${date}.xlsx`); }
+    catch(e){alert('Export error: '+e.message);console.error(e);}
+    finally{if(btn){btn.textContent='⬇ Excel';btn.disabled=false;}}
+  },50);
+}
+
+function exportHistoryExcel() {
+  const snap=getSelectedSnapshot();
+  if(!snap){alert('No snapshot selected.');return;}
+  const whs=snap.warehouses||[];
+  if(!whs.length){alert('No warehouse data.');return;}
+  const discWHs=whs.filter(wh=>snap.rows.some(row=>{
+    const c=row.cells&&row.cells[wh];return c&&c.discBP!==null&&c.discBP!==0;
+  }));
+  setTimeout(async()=>{
+    try{ await XL.generate(whs, snap.rows, snap.rows, discWHs, `discrepancy_${snap.date}.xlsx`); }
+    catch(e){alert('Export error: '+e.message);console.error(e);}
+  },50);
+}
+
+// ── HELPERS ─────────────────────────────────────────────────
+function step(t){document.getElementById('lstep').textContent=t;}
+function showOverlay(v){document.getElementById('overlay').classList.toggle('hide',!v);}
+function disableRefresh(v){document.getElementById('rfBtn').disabled=v;document.getElementById('rfIco').className=v?'spin-i':'';}
+function hideErr(){document.getElementById('errBanner').classList.remove('on');}
+function showErr(m){const b=document.getElementById('errBanner');b.textContent=m;b.classList.add('on');}
+
+loadAll();
+</script>
+</body>
+</html>
